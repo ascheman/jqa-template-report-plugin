@@ -1,0 +1,217 @@
+= jQAssistant Template Report Plugin
+:toc:
+:icons: font
+
+A jQAssistant report plugin that renders rule results through FreeMarker templates.
+Designed for AsciiDoc output by default, but the engine is text-format-agnostic — point it at a different template directory and you get Markdown, Confluence storage format, or anything else.
+
+== What It Does
+
+A consumer rule declares its output:
+
+[source,xml]
+----
+<concept id="my:BundleMetadataReport">
+  <description>...</description>
+  <cypher><![CDATA[ ... ]]></cypher>
+  <report type="template" primaryColumn="SymbolicName"/>
+</concept>
+----
+
+The plugin then:
+
+. Looks up the classpath template `/templates/my-BundleMetadataReport.adoc.ftl`.
+. Groups the rule's rows by `SymbolicName` (because `primaryColumn` is set).
+. Writes one fragment per group to `<reportDir>/asciidoc/<key>/my_BundleMetadataReport.adoc`.
+
+When `primaryColumn` is omitted, the plugin produces a single file per rule under `<reportDir>/asciidoc/<rule>.adoc` containing all rows.
+
+== Installation
+
+Add the plugin to your `.jqassistant.yml`:
+
+[source,yaml]
+----
+jqassistant:
+  plugins:
+    - group-id: net.aschemann.jqassistant.plugins
+      artifact-id: jqa-template-report-plugin
+      version: 0.1.0-SNAPSHOT
+----
+
+Templates are picked up from the classpath of the running jQAssistant analyze invocation, so they may live in your own project, in a sibling concept-plugin, or anywhere else on the plugin classloader's `/templates` resource path.
+
+== Data Model Exposed to Templates
+
+[source]
+----
+rule    -> { id, description, severity }
+columns -> List<String> of column names
+rows    -> List<Map<String, String>> of column-name to label-string
+key     -> String (only set in per-group mode)
+----
+
+A typical FreeMarker template:
+
+[source,asciidoc]
+----
+[#ftl encoding="UTF-8"]
+[#assign sym = key!"(unknown)"]
+[[my-${sym}-metadata]]
+== Metadata - ${sym}
+
+[#if rows?size == 0]
+NOTE: No metadata recorded.
+[#else]
+[options="header",cols="1,3"]
+|===
+| Property | Value
+[#list rows as row]
+| Symbolic Name | ${row.SymbolicName!"-"}
+| Version       | ${row.Version!"-"}
+[/#list]
+|===
+[/#if]
+----
+
+Always handle the empty-rows case explicitly (see _Stubs_ below for why).
+
+== Configuration
+
+Each property below can be set globally in `.jqassistant.yml` under `jqassistant.analyze.report.properties.*`, or per-rule via `<report><properties>...</properties></report>`.
+Per-rule values override global values.
+For the output-format properties (subdir, suffixes, label) an empty per-rule value falls through to the global value -- no meaningful "disabled" state.
+For the filter and stub-source, an explicit empty per-rule value disables the feature for that rule even when the global value is set.
+
+[options="header"]
+|===
+| Key | Type | Default | Effect
+| `template.output-subdir`        | string  | `asciidoc`   | Subdirectory under `<reportDir>/` where rendered files land.
+| `template.output-suffix`        | string  | `.adoc`      | Filename suffix for rendered files (include the leading dot).
+| `template.template-suffix`      | string  | `.adoc.ftl`  | Suffix appended to the rule id when looking up the template on the classpath.
+| `template.report-label`         | string  | `AsciiDoc`   | Label registered with jQAssistant's report context (shown in the master report listing).
+| `template.primary-key-pattern`  | regex   | (none)       | In per-group mode, drops groups whose primary-column value does not match.
+| `template.stub-source`          | rule id | (none)       | Renders empty-row stubs for keys present in the named rule but missing here.
+|===
+
+=== Switching Output Format
+
+To render Markdown instead of AsciiDoc, override the four output-format properties globally or per-rule and ship `.md.ftl` templates:
+
+[source,yaml]
+----
+jqassistant:
+  analyze:
+    report:
+      properties:
+        template.output-subdir: "markdown"
+        template.output-suffix: ".md"
+        template.template-suffix: ".md.ftl"
+        template.report-label: "Markdown"
+----
+
+=== Filtering: `template.primary-key-pattern`
+
+Common case: limit per-bundle / per-module output to rows the consumer cares about.
+
+[source,yaml]
+----
+jqassistant:
+  analyze:
+    report:
+      properties:
+        # only render fragments for the consumer's own bundles
+        template.primary-key-pattern: "com\\.example\\..*"
+----
+
+Invalid regex is logged once and ignored — no crash.
+
+=== Stubs: `template.stub-source`
+
+A second rule's primary-column values define the *universe* of expected keys.
+Any rule that doesn't produce a row for one of those keys gets an empty fragment rendered with `rows = []` so the section heading and anchor still appear.
+Result: consumer-side AsciiDoc `include::` directives can be uniform across the universe — every key has every section's fragment, even if some are stubs.
+
+[source,yaml]
+----
+jqassistant:
+  analyze:
+    report:
+      properties:
+        template.stub-source: "my:BundleMetadataReport"
+----
+
+==== Mental Model
+
+Read this when in doubt:
+
+. The universe of keys is *not* read from the graph; it is whatever the named universe-source rule produced as primary-column values during this analyze invocation.
+. Cypher queries do not consult each other.
+  Cross-rule communication happens entirely through this plugin's in-memory map: as each rule's result is delivered, the plugin records the keys that survived the filter; later rules look them up.
+. Therefore the named universe-source rule must run *before* any rule that uses it as stub source.
+  Enforce with `<requiresConcept refId="..."/>` in the rule XML.
+  If a rule references a stub source that has not been processed yet, a `WARN` is logged and stubs are skipped for that invocation.
+. A rule using itself as the stub source is a no-op (skipped); by construction every key in the universe trivially has a row in the rule that defined the universe.
+. The `primary-key-pattern` filter is applied *before* keys enter the universe.
+  The universe is the filtered key set, not the raw graph state.
+
+==== Event Order in a Single Analyze Invocation
+
+[source]
+----
+1. jQA executes ruleA (the universe-source, ordered first via <requiresConcept>)
+2. ruleA's Result is handed to TemplateReportPlugin.setResult(...)
+3. plugin renders one fragment per row + records seenKeys[ruleA.id] = {observed keys}
+4. jQA executes ruleB (a section that uses ruleA as stub source)
+5. plugin groups ruleB's rows by primaryColumn; renders real fragments for each group
+6. plugin reads template.stub-source on ruleB → ruleA.id
+7. plugin computes (seenKeys[ruleA.id] - ruleB's groups) and renders an empty stub
+   (rows = [], key = ...) for each missing key, using ruleB's template
+8. ... repeat for every subsequent rule
+----
+
+==== Common Pitfall: Empty Tables in Stubs
+
+A template that does
+
+[source,asciidoc]
+----
+[options="header"]
+|===
+| Property | Value
+[#list rows as row]
+| ...
+[/#list]
+|===
+----
+
+renders a section heading followed by a header-only empty table when `rows` is empty.
+Most readers find that confusing.
+Always wrap the table in a guard:
+
+[source,asciidoc]
+----
+[#if rows?size == 0]
+NOTE: No items.
+[#else]
+[options="header"]
+|===
+...
+|===
+[/#if]
+----
+
+== Caveat: jQAssistant Config Ordinals
+
+Properties from `.jqassistant.yml` are loaded at SmallRye Config ordinal 100, while Maven `-D` system properties are exposed at ordinal 90.
+Anything set in `.jqassistant.yml` therefore *cannot* be overridden via the Maven command line.
+To change a value temporarily, edit the YAML or pass it via the jQAssistant Maven plugin's `<yaml>` parameter.
+
+== Requirements
+
+* Java 11+
+* jQAssistant 2.9.1+
+
+== License
+
+This project is licensed under the https://www.gnu.org/licenses/gpl-3.0.html[GNU General Public License v3].

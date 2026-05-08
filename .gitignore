@@ -1,0 +1,18 @@
+# Maven
+target/
+settings.xml
+pom.xml.versionsBackup
+
+# IDE
+.idea/
+*.iml
+.project
+.classpath
+.settings/
+
+# Claude Code
+.claude/
+CLAUDE.local.md
+
+# OS
+.DS_Store

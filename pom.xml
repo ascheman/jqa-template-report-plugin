@@ -1,0 +1,146 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>net.aschemann.jqassistant.plugins</groupId>
+    <artifactId>jqa-template-report-plugin</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+
+    <name>jQAssistant Template Report Plugin</name>
+    <description>Renders jQAssistant rule results to text (default: AsciiDoc) using FreeMarker templates. Supports per-row file splitting via primaryColumn and uniform stub fragments via a configurable universe-source rule.</description>
+    <url>https://aschemann.net/</url>
+    <inceptionYear>2026</inceptionYear>
+
+    <organization>
+        <name>Gerd Aschemann (Freelancer)</name>
+        <url>https://aschemann.net/</url>
+    </organization>
+
+    <licenses>
+        <license>
+            <name>GNU General Public License, v3</name>
+            <url>https://www.gnu.org/licenses/gpl-3.0.html</url>
+        </license>
+    </licenses>
+
+    <scm>
+        <url>https://github.com/ascheman/jqa-template-report-plugin.git</url>
+    </scm>
+
+    <developers>
+        <developer>
+            <id>ascheman</id>
+            <name>Gerd Aschemann</name>
+            <email>gerd@aschemann.net</email>
+            <roles>
+                <role>developer</role>
+            </roles>
+        </developer>
+    </developers>
+
+    <properties>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+
+        <maven.compiler.source>11</maven.compiler.source>
+        <maven.compiler.target>11</maven.compiler.target>
+
+        <oss.sonatype.org.url>https://oss.sonatype.org</oss.sonatype.org.url>
+
+        <project.build.outputTimestamp>2026-01-01T00:00:00Z</project.build.outputTimestamp>
+
+        <freemarker.version>2.3.34</freemarker.version>
+        <jqa.version>2.9.1</jqa.version>
+        <slf4j.version>2.0.17</slf4j.version>
+    </properties>
+
+    <pluginRepositories>
+        <pluginRepository>
+            <id>ossrh</id>
+            <url>${oss.sonatype.org.url}/content/repositories/snapshots/</url>
+            <snapshots>
+                <enabled>true</enabled>
+                <updatePolicy>always</updatePolicy>
+            </snapshots>
+        </pluginRepository>
+    </pluginRepositories>
+
+    <repositories>
+        <repository>
+            <id>ossrh</id>
+            <url>${oss.sonatype.org.url}/content/repositories/snapshots/</url>
+            <snapshots>
+                <enabled>true</enabled>
+                <updatePolicy>always</updatePolicy>
+            </snapshots>
+        </repository>
+    </repositories>
+
+    <distributionManagement>
+        <repository>
+            <id>oss.sonatype.org</id>
+            <url>${oss.sonatype.org.url}/service/local/staging/deploy/maven2/</url>
+        </repository>
+        <snapshotRepository>
+            <id>ossrh</id>
+            <url>${oss.sonatype.org.url}/content/repositories/snapshots/</url>
+            <layout>default</layout>
+        </snapshotRepository>
+    </distributionManagement>
+
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>com.buschmais.jqassistant</groupId>
+                <artifactId>bom</artifactId>
+                <version>${jqa.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
+    <dependencies>
+        <dependency>
+            <groupId>com.buschmais.jqassistant.core</groupId>
+            <artifactId>report</artifactId>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.buschmais.jqassistant.core</groupId>
+            <artifactId>rule</artifactId>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.freemarker</groupId>
+            <artifactId>freemarker</artifactId>
+            <version>${freemarker.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-api</artifactId>
+            <version>${slf4j.version}</version>
+            <scope>provided</scope>
+        </dependency>
+    </dependencies>
+
+    <profiles>
+        <profile>
+            <id>github</id>
+            <activation>
+                <property>
+                    <name>env.GITHUB_TOKEN</name>
+                </property>
+            </activation>
+            <distributionManagement>
+                <snapshotRepository>
+                    <id>github</id>
+                    <name>GitHub Packages</name>
+                    <!--suppress UnresolvedMavenProperty -->
+                    <url>https://maven.pkg.github.com/${env.GITHUB_LOGIN}/${project.artifactId}</url>
+                </snapshotRepository>
+            </distributionManagement>
+        </profile>
+    </profiles>
+</project>

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<jqassistant-plugin xmlns="http://schema.jqassistant.org/plugin/v2.4"
+                    name="jQAssistant Template Report Plugin"
+                    id="jqa.plugin.template.report"
+                    version="${project.version}">
+    <description>Renders rule results to text (AsciiDoc by default) using FreeMarker templates loaded from the classpath. Supports per-row file splitting via primaryColumn and uniform stubs via a configurable universe-source rule.</description>
+    <report>
+        <class id="template">net.aschemann.jqassistant.plugins.template.report.TemplateReportPlugin</class>
+    </report>
+</jqassistant-plugin>
