@@ -73,6 +73,27 @@
 
 
     <build>
+        <!--
+          jqassistant-plugin.xml carries version="${project.version}", which jQAssistant
+          logs as the plugin version - unfiltered it shows the literal placeholder.
+          Filtering is scoped to that one file on purpose: rule files and FreeMarker
+          templates use ${...} for their own purposes and must pass through untouched.
+        -->
+        <resources>
+            <resource>
+                <directory>src/main/resources</directory>
+                <includes>
+                    <include>META-INF/jqassistant-plugin.xml</include>
+                </includes>
+                <filtering>true</filtering>
+            </resource>
+            <resource>
+                <directory>src/main/resources</directory>
+                <excludes>
+                    <exclude>META-INF/jqassistant-plugin.xml</exclude>
+                </excludes>
+            </resource>
+        </resources>
         <plugins>
             <plugin>
                 <artifactId>maven-surefire-plugin</artifactId>
