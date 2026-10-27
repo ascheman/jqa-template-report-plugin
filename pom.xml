@@ -157,23 +157,29 @@
         </dependency>
     </dependencies>
 
+    <!--
+      SNAPSHOTs go to the Central Portal snapshot repository. It is readable
+      anonymously, so anyone can test a SNAPSHOT by adding
+
+          https://central.sonatype.com/repository/maven-snapshots/
+
+      as a repository - no credentials, no token handed out. GitHub Packages
+      answers 401 even for public packages, which made every consumer need
+      their own token; that is why it is no longer used here.
+
+      Deploying needs the Central Portal user token in a <server> with this id.
+      Releases are not deployed from here: the `release` profile overrides
+      <repository> with a local staging directory that JReleaser uploads.
+    -->
+    <distributionManagement>
+        <snapshotRepository>
+            <id>central-snapshots</id>
+            <name>Central Portal Snapshots</name>
+            <url>https://central.sonatype.com/repository/maven-snapshots/</url>
+        </snapshotRepository>
+    </distributionManagement>
+
     <profiles>
-        <profile>
-            <id>github</id>
-            <activation>
-                <property>
-                    <name>env.GITHUB_TOKEN</name>
-                </property>
-            </activation>
-            <distributionManagement>
-                <snapshotRepository>
-                    <id>github</id>
-                    <name>GitHub Packages</name>
-                    <!--suppress UnresolvedMavenProperty -->
-                    <url>https://maven.pkg.github.com/${env.GITHUB_LOGIN}/${project.artifactId}</url>
-                </snapshotRepository>
-            </distributionManagement>
-        </profile>
         <profile>
             <!--
               Release from a local working copy, so that signing uses the local GnuPG
@@ -200,11 +206,24 @@
                   Deploy to a local directory rather than to a remote repository.
                   JReleaser picks the artifacts up from here, which keeps the upload
                   a separate, repeatable step: a failed upload does not require a rebuild.
+
+                  Both elements point at the staging directory on purpose. A
+                  profile's distributionManagement is *merged* with the one
+                  outside it, element by element, rather than replacing it. With
+                  only <repository> declared here, a `-Prelease deploy` run on a
+                  version that still carried -SNAPSHOT would silently fall
+                  through to the snapshot repository and leave the staging
+                  directory empty, which JReleaser would then report as "no
+                  artifacts". Declaring both makes -Prelease self-contained.
                 -->
                 <repository>
                     <id>staging</id>
                     <url>file://${staging.repository.directory}</url>
                 </repository>
+                <snapshotRepository>
+                    <id>staging</id>
+                    <url>file://${staging.repository.directory}</url>
+                </snapshotRepository>
             </distributionManagement>
             <build>
                 <plugins>

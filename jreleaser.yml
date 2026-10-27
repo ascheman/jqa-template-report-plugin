@@ -3,11 +3,20 @@
 # Name, version, description and the Java coordinates are taken from the POM;
 # only what Maven does not know is configured here.
 #
-#   ./mvnw -Prelease clean deploy          # build, sign, stage into target/staging-deploy
-#   ./mvnw -Prelease jreleaser:full-release # upload to Maven Central, tag, create GitHub release
+#   ./mvnw -Prelease clean deploy           # build, sign, stage into target/staging-deploy
+#   ./mvnw -Prelease jreleaser:full-release  # upload, wait for VALIDATED, then stop
+#   ... test the validated deployment, then publish it ...
+#   JRELEASER_DEPLOY_MAVEN_MAVENCENTRAL_STAGE=PUBLISH \
+#   JRELEASER_DEPLOY_MAVEN_MAVENCENTRAL_DEPLOYMENT_ID=<id> \
+#       ./mvnw -Prelease jreleaser:full-release
 #
-# Environment: JRELEASER_GITHUB_TOKEN, JRELEASER_MAVENCENTRAL_USERNAME,
-# JRELEASER_MAVENCENTRAL_PASSWORD (Central Portal user token, not the password).
+# Environment: JRELEASER_GITHUB_TOKEN plus the Central Portal user token as
+# JRELEASER_DEPLOY_MAVEN_MAVENCENTRAL_USERNAME / _PASSWORD. AbstractMavenDeployer
+# .keysFor() resolves "deploy.maven.<type>.<property>" as well as the longer
+# form with the deployer name, so these work regardless of the name "sonatype"
+# below. Note that the system-property spelling is lowercased by Env.sysKey(),
+# so -Djreleaser.deploy.maven.mavenCentral... does NOT match; use the
+# environment variables above.
 
 project:
   license: GPL-3.0-only
@@ -41,6 +50,15 @@ deploy:
       sonatype:
         active: ALWAYS
         url: https://central.sonatype.com/api/v1/publisher
+        # Upload and wait for VALIDATED, but do NOT publish. Publishing to
+        # Central is irreversible - a version can never be replaced or removed,
+        # only superseded - so it gets its own deliberate step. The default
+        # would be FULL, which uploads and publishes in one go.
+        # The validated deployment can be resolved for testing from
+        # https://central.sonatype.com/api/v1/publisher/deployments/download,
+        # which requires the Bearer token (base64 of username:password) and is
+        # therefore only usable by the namespace owner.
+        stage: UPLOAD
         # The build already produced .asc signatures; applyMavenCentralRules
         # verifies that sources, javadoc, signatures and POM metadata are all
         # present before anything is uploaded.

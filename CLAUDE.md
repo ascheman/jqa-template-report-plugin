@@ -84,6 +84,22 @@ The first command only writes to a local directory — `distributionManagement` 
 
 OSSRH (`oss.sonatype.org`) was sunset in June 2025 and is gone; the POM no longer references it.
 
-SNAPSHOTs go to GitHub Packages via the `github` profile, which auto-activates when `GITHUB_TOKEN` is set in the environment, under `${env.GITHUB_LOGIN}/jqa-template-report-plugin`. Credentials for that come from a `server` entry with id `github`; `~/.m2/settings-gh.xml` holds one that reads `${env.GITHUB_LOGIN}`/`${env.GITHUB_TOKEN}`, so `./mvnw -s ~/.m2/settings-gh.xml deploy` works without storing a token in a file.
+SNAPSHOTs go to the **Central Portal snapshot repository** (`https://central.sonatype.com/repository/maven-snapshots/`), configured in the top-level `distributionManagement` — no profile, so a plain `./mvnw deploy` hits it. Deploying needs the Central Portal user token in a `<server id="central-snapshots">`.
+
+GitHub Packages is deliberately **not** used any more. It answers HTTP 401 even for public packages, so every consumer needed their own GitHub token — unusable for letting a third party test a SNAPSHOT. The Central snapshot repository is readable anonymously (verified: HTTP 200 on the repository root and on foreign artifacts), so a consumer only has to add the URL as a repository.
+
+### Release stages
+
+`jreleaser.yml` sets `stage: UPLOAD`, so `jreleaser:full-release` uploads the bundle, waits for state `VALIDATED` and then **stops**. Publishing is a separate, deliberate step, because publishing to Central is irreversible — a version can never be replaced or removed, only superseded:
+
+```bash
+JRELEASER_DEPLOY_MAVEN_MAVENCENTRAL_STAGE=PUBLISH \
+JRELEASER_DEPLOY_MAVEN_MAVENCENTRAL_DEPLOYMENT_ID=<id> \
+    ./mvnw -Prelease jreleaser:full-release
+```
+
+Between the two steps the validated bundle can be resolved for testing from `https://central.sonatype.com/api/v1/publisher/deployments/download`, which needs an `Authorization: Bearer <base64(username:password)>` header. That endpoint is **only** usable by the namespace owner (verified: HTTP 401 anonymously), so it is not a way to let a customer test — use a SNAPSHOT for that.
+
+Credential variable names come from `AbstractMavenDeployer.keysFor()`, which resolves `deploy.maven.<type>.<property>` as well as the longer form including the deployer name. `Env.sysKey()` lowercases, so the `-Djreleaser.deploy.maven.mavenCentral...` spelling does **not** match; use the environment variables.
 
 Don't trigger deploys without explicit user confirmation.
