@@ -39,7 +39,90 @@ jqassistant:
       version: 0.1.0-SNAPSHOT
 ----
 
-Templates are picked up from the classpath of the running jQAssistant analyze invocation, so they may live in your own project, in a sibling concept-plugin, or anywhere else on the plugin classloader's `/templates` resource path.
+The plugin looks templates up filesystem-first, class-path-fallback:
+
+. Filesystem: `<template.template-dir>/<name>` (default dir `jqassistant/templates/`, relative to the JVM working directory -- under Maven that's the project root).
+. Plugin class loader: `/templates/<name>`, visible across every loaded jQAssistant plugin's resources.
+
+If a template exists in both places, the filesystem copy wins.
+That means you can drop templates into your project without packaging a JAR, _and_ override a plugin-shipped template by placing a same-named file under `jqassistant/templates/`.
+
+=== Project-Local Templates: A Worked Example
+
+The default layout assumes a Maven project that consumes jQAssistant.
+Drop the template next to the rule -- no plugin JAR, no extra configuration:
+
+[source]
+----
+my-project/
+├── .jqassistant.yml                                        <1>
+├── jqassistant/
+│   ├── my-rules.xml                                        <2>
+│   └── templates/
+│       └── my-BundleMetadataReport.adoc.ftl                <3>
+├── pom.xml
+└── src/
+----
+<1> Declares this plugin (see _Installation_ above).
+<2> Rule definition.
+The example below uses rule id `my:BundleMetadataReport`.
+<3> Template named after the rule id, with colons replaced by hyphens and the configured suffix appended.
+
+`.jqassistant/my-rules.xml`:
+
+[source,xml]
+----
+<jqassistant-rules xmlns="http://schema.jqassistant.org/rule/v2.4">
+  <concept id="my:BundleMetadataReport">
+    <description>Bundle metadata as an AsciiDoc fragment.</description>
+    <cypher><![CDATA[
+      MATCH (b:Osgi:Bundle)
+      RETURN b.bundleSymbolicName AS SymbolicName,
+             b.bundleVersion      AS Version
+      ORDER BY SymbolicName
+    ]]></cypher>
+    <report type="template" primaryColumn="SymbolicName"/>
+  </concept>
+</jqassistant-rules>
+----
+
+`jqassistant/templates/my-BundleMetadataReport.adoc.ftl`:
+
+[source]
+----
+[#ftl encoding="UTF-8"]
+[#assign sym = key!"(unknown)"]
+[[my-${sym}-metadata]]
+== Metadata - ${sym}
+
+[#if rows?size == 0]
+NOTE: No metadata recorded.
+[#else]
+[options="header",cols="1,3"]
+|===
+| Property | Value
+[#list rows as row]
+| Symbolic Name | ${row.SymbolicName!"-"}
+| Version       | ${row.Version!"-"}
+[/#list]
+|===
+[/#if]
+----
+
+Run `mvn jqassistant:analyze` and the rendered fragments appear under `target/jqassistant/report/asciidoc/<SymbolicName>/my_BundleMetadataReport.adoc`.
+
+To use a different directory (for example, one under `src/`):
+
+[source,yaml]
+----
+jqassistant:
+  analyze:
+    report:
+      properties:
+        template.template-dir: "src/jqassistant/templates"
+----
+
+Set it to an empty string to disable the filesystem layer and force classpath-only lookup.
 
 == Data Model Exposed to Templates
 
@@ -92,6 +175,7 @@ For the filter and stub-source, an explicit empty per-rule value disables the fe
 | `template.report-label`         | string  | `AsciiDoc`   | Label registered with jQAssistant's report context (shown in the master report listing).
 | `template.primary-key-pattern`  | regex   | (none)       | In per-group mode, drops groups whose primary-column value does not match.
 | `template.stub-source`          | rule id | (none)       | Renders empty-row stubs for keys present in the named rule but missing here.
+| `template.template-dir`         | path    | `jqassistant/templates` | Filesystem directory checked before the class path. Relative to the JVM working directory. An explicit empty string disables the filesystem layer.
 |===
 
 === Switching Output Format

@@ -10,7 +10,8 @@
 
 The template-report plugin is a jQAssistant `ReportPlugin` that renders rule results through https://freemarker.apache.org/[FreeMarker] templates.
 It registers under the report id `template`.
-Templates are loaded from the classpath, so they may live in the same project as the rules, in a sibling concept-plugin, or anywhere on the jQAssistant plugin classloader's `/templates` resource path.
+The plugin looks templates up filesystem-first, class-path-fallback: by default a project-local directory `jqassistant/templates/` wins over `/templates` on the plugin class loader.
+Templates can live next to the rules in a Maven project, in a sibling concept-plugin, or anywhere on the jQAssistant plugin class loader's `/templates` resource path.
 
 The default output format is AsciiDoc (file extension `.adoc`), but the renderer is text-format-agnostic.
 Switching to Markdown, Confluence storage format, or anything else means writing different templates -- no code change.
@@ -52,19 +53,56 @@ All output goes under the configured jQAssistant report directory, in a `asciido
 
 == Template Lookup
 
-For a rule with id `group:RuleName`, the plugin loads the classpath resource:
+For a rule with id `group:RuleName`, the plugin looks for a template named:
 
 [source]
 ----
-/templates/group-RuleName.adoc.ftl
+group-RuleName.adoc.ftl
 ----
 
-Colons in the rule id become hyphens; the suffix is fixed.
-If the resource does not exist, the rule is silently skipped (only a debug log is emitted).
-This lets a rule set declare `template` as one of several report types without forcing every rule to ship a template.
+Colons in the rule id become hyphens; the suffix is configurable (see `template.template-suffix`).
+The plugin checks two layers, in order:
 
-The classloader used for lookup is the thread context classloader at `configure(...)` time, which under jQAssistant's plugin loader has visibility into every loaded plugin's resources.
-A plugin that ships only Cypher concepts can therefore put its templates in the same JAR; the renderer in this plugin will find them.
+. *Filesystem* -- `<template.template-dir>/<name>`, where `template.template-dir` defaults to `jqassistant/templates` and resolves relative to the JVM working directory.
+  Under Maven that is the project root.
+. *Plugin class loader* -- `/templates/<name>` on the thread context class loader, which under jQAssistant's plugin loader sees every loaded plugin's resources.
+
+If both layers contain the same name, the filesystem copy wins.
+That gives you two complementary options for shipping templates:
+
+* Drop them into your project under `jqassistant/templates/` -- no plugin JAR required.
+* Package them in a JAR alongside your rules (under `/templates/` in the JAR) and declare that JAR as a jQAssistant plugin.
+
+When neither layer has a match, the plugin skips the rule with a debug log only.
+A rule set can mix `template` with other report types and only ship templates for the rules that need them.
+
+[TIP]
+====
+Putting a same-named file under `jqassistant/templates/` overrides a plugin-shipped template for a single project, without rebuilding the plugin JAR.
+Handy for tweaking wording, adding annotations, or swapping output format on a per-project basis.
+====
+
+=== Worked Example: Project-Local Templates
+
+The default layout assumes a Maven project that consumes jQAssistant.
+Drop the template next to the rule -- no plugin JAR, no extra configuration:
+
+[source]
+----
+my-project/
+├── .jqassistant.yml                                        <1>
+├── jqassistant/
+│   ├── my-rules.xml                                        <2>
+│   └── templates/
+│       └── my-BundleMetadataReport.adoc.ftl                <3>
+├── pom.xml
+└── src/
+----
+<1> Declares this plugin under `jqassistant.plugins`.
+<2> Rule definition with `<report type="template" primaryColumn="SymbolicName"/>`.
+<3> Template name derived from the rule id (`my:BundleMetadataReport` -> colons replaced by hyphens) plus the suffix `.adoc.ftl`.
+
+Running `mvn jqassistant:analyze` renders one file per `SymbolicName` group under `target/jqassistant/report/asciidoc/<SymbolicName>/my_BundleMetadataReport.adoc`.
 
 == Data Model Exposed to Templates
 
@@ -116,6 +154,7 @@ Per-rule values override global values; an explicit empty per-rule value disable
 | `template.report-label`          | string   | `AsciiDoc`       | Human-readable label registered with jQAssistant's report context (shown in the master report listing).
 | `template.primary-key-pattern`   | regex    | (none)           | In per-group mode, drops groups whose primary column value does not match.
 | `template.stub-source`           | rule id  | (none)           | Renders empty-row stubs for keys present in the named rule but missing in the current rule.
+| `template.template-dir`          | path     | `jqassistant/templates` | Filesystem directory checked before the class path. Relative to the JVM working directory. An explicit empty string disables the filesystem layer.
 |====
 
 For the output-format properties (subdir, suffixes, label) an empty per-rule value falls through to the global value -- there is no meaningful "disabled" state.
@@ -139,6 +178,24 @@ jqassistant:
 
 Then ship `.md.ftl` templates instead of `.adoc.ftl` ones.
 The renderer is text-format-agnostic; only the data model and the FreeMarker engine constrain what your templates can produce.
+
+=== Choosing the Template Directory: `template.template-dir`
+
+The default `jqassistant/templates` matches the project-local convention shown in <<_worked_example_project_local_templates>>.
+To keep templates somewhere else (for example, under `src/`):
+
+[source,yaml]
+----
+jqassistant:
+  analyze:
+    report:
+      properties:
+        template.template-dir: "src/jqassistant/templates"
+----
+
+Relative paths use the JVM working directory as base, so `src/jqassistant/templates` lands at the project root under Maven.
+Absolute paths work too.
+Setting the value to an explicit empty string disables the filesystem layer entirely, leaving the class path as the only source of templates.
 
 === Filtering: `template.primary-key-pattern`
 

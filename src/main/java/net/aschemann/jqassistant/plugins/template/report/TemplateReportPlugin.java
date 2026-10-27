@@ -9,6 +9,10 @@ import com.buschmais.jqassistant.core.report.api.model.Row;
 import com.buschmais.jqassistant.core.rule.api.model.ExecutableRule;
 import com.buschmais.jqassistant.core.rule.api.model.Report;
 
+import freemarker.cache.ClassTemplateLoader;
+import freemarker.cache.FileTemplateLoader;
+import freemarker.cache.MultiTemplateLoader;
+import freemarker.cache.TemplateLoader;
 import freemarker.template.Configuration;
 import freemarker.template.Template;
 import freemarker.template.TemplateException;
@@ -42,11 +46,23 @@ import java.util.regex.PatternSyntaxException;
  *
  * <h2>Template lookup</h2>
  *
- * For a rule with id {@code group:RuleName}, the plugin loads the classpath resource
- * {@code /templates/group-RuleName<template-suffix>}. The template suffix defaults to
- * {@code .adoc.ftl} but is configurable (see below). If no such resource exists, the rule
- * is silently skipped (only a debug log is emitted) — that lets a single rule set declare
- * {@code template} as a non-default report type without forcing every rule to ship a template.
+ * For a rule with id {@code group:RuleName}, the plugin loads the template named
+ * {@code group-RuleName<template-suffix>} (default suffix {@code .adoc.ftl}). Lookup is
+ * filesystem-first, classpath-fallback:
+ *
+ * <ol>
+ *   <li>Filesystem: under {@code <template.template-dir>/} (default
+ *       {@code jqassistant/templates}, resolved against the JVM working directory).</li>
+ *   <li>Classpath: under {@code /templates/} on the thread context classloader (which
+ *       under jQA's plugin loader sees every loaded plugin's resources).</li>
+ * </ol>
+ *
+ * If a template exists in both, the filesystem copy wins — handy for overriding a
+ * plugin-shipped template without rebuilding the JAR. If no resource exists, the rule
+ * is silently skipped (only a debug log is emitted), so a rule set can declare
+ * {@code template} as a non-default report type without forcing every rule to ship a
+ * template. Set {@code template.template-dir} to an explicit empty string to disable
+ * the filesystem layer entirely.
  *
  * <h2>Output layout</h2>
  *
@@ -127,6 +143,7 @@ import java.util.regex.PatternSyntaxException;
  * The filter and stub-source treat an explicit empty string as "disable for this rule".</p>
  *
  * <table>
+ *   <caption>Configuration properties</caption>
  *   <tr><th>Key</th><th>Type</th><th>Default</th><th>Effect</th></tr>
  *   <tr><td>{@code template.output-subdir}</td><td>string</td><td>{@code asciidoc}</td>
  *       <td>Subdirectory under {@code <reportDir>/} where rendered files land.</td></tr>
@@ -140,6 +157,9 @@ import java.util.regex.PatternSyntaxException;
  *       <td>In per-group mode, drops groups whose primary-column value does not match.</td></tr>
  *   <tr><td>{@code template.stub-source}</td><td>rule id</td><td>(none)</td>
  *       <td>Renders empty-row stubs for keys present in the named rule but missing here.</td></tr>
+ *   <tr><td>{@code template.template-dir}</td><td>path</td><td>{@code jqassistant/templates}</td>
+ *       <td>Filesystem directory checked before the classpath. Resolved against the JVM
+ *       working directory. Explicit empty string disables the filesystem layer.</td></tr>
  * </table>
  *
  * <h2>Caveat: jQAssistant config ordinals</h2>
@@ -170,6 +190,9 @@ public class TemplateReportPlugin implements ReportPlugin {
     /** See class-level javadoc. */
     public static final String PROP_STUB_SOURCE = "template.stub-source";
 
+    /** See class-level javadoc. */
+    public static final String PROP_TEMPLATE_DIR = "template.template-dir";
+
     private static final Logger LOGGER = LoggerFactory.getLogger(TemplateReportPlugin.class);
 
     private static final String TEMPLATE_BASE = "/templates";
@@ -181,6 +204,8 @@ public class TemplateReportPlugin implements ReportPlugin {
     private static final String DEFAULT_TEMPLATE_SUFFIX = ".adoc.ftl";
 
     private static final String DEFAULT_REPORT_LABEL = "AsciiDoc";
+
+    private static final String DEFAULT_TEMPLATE_DIR = "jqassistant/templates";
 
     private ReportContext reportContext;
 
@@ -231,7 +256,7 @@ public class TemplateReportPlugin implements ReportPlugin {
     public void configure(ReportContext reportContext, Map<String, Object> properties) throws ReportException {
         this.reportContext = reportContext;
         Configuration cfg = new Configuration(Configuration.VERSION_2_3_32);
-        cfg.setClassLoaderForTemplateLoading(Thread.currentThread().getContextClassLoader(), TEMPLATE_BASE);
+        cfg.setTemplateLoader(buildTemplateLoader(properties));
         cfg.setDefaultEncoding(StandardCharsets.UTF_8.name());
         cfg.setTemplateExceptionHandler(TemplateExceptionHandler.RETHROW_HANDLER);
         cfg.setLogTemplateExceptions(false);
@@ -274,7 +299,7 @@ public class TemplateReportPlugin implements ReportPlugin {
         try {
             template = freemarker.getTemplate(templateName);
         } catch (IOException e) {
-            LOGGER.debug("No template '{}/{}' for rule '{}', skipping report.", TEMPLATE_BASE, templateName, ruleId);
+            LOGGER.debug("No template '{}' for rule '{}' (checked filesystem dir and classpath {}/), skipping report.", templateName, ruleId, TEMPLATE_BASE);
             return;
         }
 
@@ -459,6 +484,51 @@ public class TemplateReportPlugin implements ReportPlugin {
             }
         }
         return globalValue;
+    }
+
+    /**
+     * Builds the FreeMarker template loader: optional filesystem layer (from
+     * {@code template.template-dir}, default {@code jqassistant/templates}) chained
+     * with the classpath layer at {@code /templates}. Filesystem wins when both have
+     * a hit, which lets users override a plugin-shipped template without rebuilding
+     * the JAR.
+     *
+     * <ul>
+     *   <li>Property absent → default dir; if it doesn't exist, classpath only (DEBUG log).</li>
+     *   <li>Property set to a non-empty path → resolved against the JVM working directory;
+     *       if the directory is missing the filesystem layer is skipped (WARN log).</li>
+     *   <li>Property set to an explicit empty string → filesystem loader disabled, classpath only.</li>
+     * </ul>
+     */
+    private static TemplateLoader buildTemplateLoader(Map<String, Object> properties) {
+        ClassTemplateLoader classpathLoader = new ClassTemplateLoader(
+            Thread.currentThread().getContextClassLoader(), TEMPLATE_BASE);
+
+        Object raw = properties != null ? properties.get(PROP_TEMPLATE_DIR) : null;
+        if (raw != null && raw.toString().trim().isEmpty()) {
+            LOGGER.info("Template report: filesystem template loader disabled by explicit empty '{}'.", PROP_TEMPLATE_DIR);
+            return classpathLoader;
+        }
+
+        String dirPath = raw != null ? raw.toString().trim() : DEFAULT_TEMPLATE_DIR;
+        File dir = new File(dirPath).getAbsoluteFile();
+        if (!dir.isDirectory()) {
+            if (raw != null) {
+                LOGGER.warn("Template report: configured template dir '{}' does not exist, falling back to classpath /templates only.", dir);
+            } else {
+                LOGGER.debug("Template report: default template dir '{}' not present, classpath /templates only.", dir);
+            }
+            return classpathLoader;
+        }
+
+        try {
+            FileTemplateLoader fileLoader = new FileTemplateLoader(dir);
+            LOGGER.info("Template report: filesystem template dir '{}' active (precedence over classpath {}).", dir, TEMPLATE_BASE);
+            return new MultiTemplateLoader(new TemplateLoader[]{fileLoader, classpathLoader});
+        } catch (IOException e) {
+            LOGGER.warn("Template report: cannot initialise filesystem template loader for '{}', classpath only ({}).", dir, e.getMessage());
+            return classpathLoader;
+        }
     }
 
     private static String stringProperty(Map<String, Object> properties, String key, String defaultValue) {
