@@ -46,8 +46,6 @@
         <maven.compiler.source>11</maven.compiler.source>
         <maven.compiler.target>11</maven.compiler.target>
 
-        <oss.sonatype.org.url>https://oss.sonatype.org</oss.sonatype.org.url>
-
         <project.build.outputTimestamp>2026-01-01T00:00:00Z</project.build.outputTimestamp>
 
         <freemarker.version>2.3.34</freemarker.version>
@@ -56,41 +54,23 @@
         <maven-surefire-plugin.version>3.5.5</maven-surefire-plugin.version>
         <jqa.version>2.9.1</jqa.version>
         <slf4j.version>2.0.17</slf4j.version>
+        <jreleaser-maven-plugin.version>1.26.0</jreleaser-maven-plugin.version>
+        <maven-gpg-plugin.version>3.2.8</maven-gpg-plugin.version>
+        <maven-javadoc-plugin.version>3.12.0</maven-javadoc-plugin.version>
+        <maven-source-plugin.version>3.4.0</maven-source-plugin.version>
+
+        <!--
+          Signing subkey of gerd@aschemann.net. The trailing "!" pins gpg to exactly
+          this RSA-4096 subkey: the primary key of that uid is a 1024 bit DSA key from
+          2005 and must never end up on a published signature. Override on the command
+          line with -Dgpg.keyname=... when releasing from a different keyring.
+        -->
+        <gpg.keyname>D6D79905C2FDD3E4FA6C13A9F3182FD01BA43E49!</gpg.keyname>
+
     </properties>
 
-    <pluginRepositories>
-        <pluginRepository>
-            <id>ossrh</id>
-            <url>${oss.sonatype.org.url}/content/repositories/snapshots/</url>
-            <snapshots>
-                <enabled>true</enabled>
-                <updatePolicy>always</updatePolicy>
-            </snapshots>
-        </pluginRepository>
-    </pluginRepositories>
 
-    <repositories>
-        <repository>
-            <id>ossrh</id>
-            <url>${oss.sonatype.org.url}/content/repositories/snapshots/</url>
-            <snapshots>
-                <enabled>true</enabled>
-                <updatePolicy>always</updatePolicy>
-            </snapshots>
-        </repository>
-    </repositories>
 
-    <distributionManagement>
-        <repository>
-            <id>oss.sonatype.org</id>
-            <url>${oss.sonatype.org.url}/service/local/staging/deploy/maven2/</url>
-        </repository>
-        <snapshotRepository>
-            <id>ossrh</id>
-            <url>${oss.sonatype.org.url}/content/repositories/snapshots/</url>
-            <layout>default</layout>
-        </snapshotRepository>
-    </distributionManagement>
 
     <build>
         <plugins>
@@ -173,5 +153,88 @@
                 </snapshotRepository>
             </distributionManagement>
         </profile>
+        <profile>
+            <!--
+              Release from a local working copy, so that signing uses the local GnuPG
+              agent and the private key never leaves this machine:
+
+                  ./mvnw -Prelease clean deploy
+                  ./mvnw -Prelease jreleaser:full-release
+
+              The first command builds, signs and stages everything into
+              ${staging.repository.directory}; the second uploads that staging
+              repository to Maven Central and creates the GitHub release.
+
+              Credentials come from the environment, never from the repository:
+              JRELEASER_GITHUB_TOKEN plus JRELEASER_MAVENCENTRAL_USERNAME and
+              JRELEASER_MAVENCENTRAL_PASSWORD (the Central Portal user token, not
+              the account password). JReleaser itself is configured in jreleaser.yml.
+            -->
+            <id>release</id>
+            <properties>
+                <staging.repository.directory>${project.build.directory}/staging-deploy</staging.repository.directory>
+            </properties>
+            <distributionManagement>
+                <!--
+                  Deploy to a local directory rather than to a remote repository.
+                  JReleaser picks the artifacts up from here, which keeps the upload
+                  a separate, repeatable step: a failed upload does not require a rebuild.
+                -->
+                <repository>
+                    <id>staging</id>
+                    <url>file://${staging.repository.directory}</url>
+                </repository>
+            </distributionManagement>
+            <build>
+                <plugins>
+                    <plugin>
+                        <artifactId>maven-source-plugin</artifactId>
+                        <version>${maven-source-plugin.version}</version>
+                        <executions>
+                            <execution>
+                                <id>attach-sources</id>
+                                <goals>
+                                    <goal>jar-no-fork</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+                    <plugin>
+                        <artifactId>maven-javadoc-plugin</artifactId>
+                        <version>${maven-javadoc-plugin.version}</version>
+                        <executions>
+                            <execution>
+                                <id>attach-javadocs</id>
+                                <goals>
+                                    <goal>jar</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+                    <plugin>
+                        <artifactId>maven-gpg-plugin</artifactId>
+                        <version>${maven-gpg-plugin.version}</version>
+                        <executions>
+                            <execution>
+                                <id>sign-artifacts</id>
+                                <phase>verify</phase>
+                                <goals>
+                                    <goal>sign</goal>
+                                </goals>
+                                <configuration>
+                                    <keyname>${gpg.keyname}</keyname>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                    <plugin>
+                        <groupId>org.jreleaser</groupId>
+                        <artifactId>jreleaser-maven-plugin</artifactId>
+                        <version>${jreleaser-maven-plugin.version}</version>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+
     </profiles>
 </project>

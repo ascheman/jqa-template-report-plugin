@@ -1,0 +1,50 @@
+# JReleaser configuration for local releases.
+#
+# Name, version, description and the Java coordinates are taken from the POM;
+# only what Maven does not know is configured here.
+#
+#   ./mvnw -Prelease clean deploy          # build, sign, stage into target/staging-deploy
+#   ./mvnw -Prelease jreleaser:full-release # upload to Maven Central, tag, create GitHub release
+#
+# Environment: JRELEASER_GITHUB_TOKEN, JRELEASER_MAVENCENTRAL_USERNAME,
+# JRELEASER_MAVENCENTRAL_PASSWORD (Central Portal user token, not the password).
+
+project:
+  license: GPL-3.0-only
+  inceptionYear: '2026'
+  copyright: '2026 Gerd Aschemann'
+  authors:
+    - Gerd Aschemann
+  links:
+    homepage: https://github.com/ascheman/jqa-template-report-plugin
+    bugTracker: https://github.com/ascheman/jqa-template-report-plugin/issues
+  languages:
+    java:
+      version: '11'
+      multiProject: false
+
+signing:
+  # Artifacts are signed during the Maven build by maven-gpg-plugin, using the
+  # local GnuPG agent. JReleaser must not sign them a second time.
+  active: NEVER
+
+release:
+  github:
+    owner: ascheman
+    name: jqa-template-report-plugin
+    tagName: '{{projectVersion}}'
+    overwrite: true
+
+deploy:
+  maven:
+    mavenCentral:
+      sonatype:
+        active: ALWAYS
+        url: https://central.sonatype.com/api/v1/publisher
+        # The build already produced .asc signatures; applyMavenCentralRules
+        # verifies that sources, javadoc, signatures and POM metadata are all
+        # present before anything is uploaded.
+        sign: false
+        applyMavenCentralRules: true
+        stagingRepositories:
+          - target/staging-deploy
