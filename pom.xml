@@ -6,7 +6,7 @@
 
     <groupId>net.aschemann.jqassistant.plugins</groupId>
     <artifactId>jqa-template-report-plugin</artifactId>
-    <version>0.1.0</version>
+    <version>0.2.0-SNAPSHOT</version>
 
     <name>jQAssistant Template Report Plugin</name>
     <description>Renders jQAssistant rule results to text (default: AsciiDoc) using FreeMarker templates. Supports per-row file splitting via primaryColumn and uniform stub fragments via a configurable universe-source rule.</description>
@@ -46,7 +46,7 @@
         <maven.compiler.source>11</maven.compiler.source>
         <maven.compiler.target>11</maven.compiler.target>
 
-        <project.build.outputTimestamp>2026-10-27T20:36:39Z</project.build.outputTimestamp>
+        <project.build.outputTimestamp>2026-10-27T21:20:23Z</project.build.outputTimestamp>
 
         <freemarker.version>2.3.34</freemarker.version>
         <junit-jupiter.version>5.14.3</junit-jupiter.version>
